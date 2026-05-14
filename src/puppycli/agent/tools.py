@@ -9,42 +9,138 @@ import requests
 from agents import function_tool
 
 
-@function_tool
-def run_powershell(command: str) -> str:
-    """Execute a PowerShell command on the user's Windows machine.
+# ---- Dangerous Command Detection ----
 
-    Use this tool when the user asks you to run a command, check system info,
-    manage files, or perform any task that requires shell execution.
+# Patterns that indicate file-modifying operations (case-insensitive)
+_DANGEROUS_PATTERNS: list[tuple[str, str]] = [
+    # (regex_pattern, risk_description)
+    # Deletion
+    (r'\bRemove-Item\b',         "此命令会删除文件或目录"),
+    (r'\bri\b',                  "此命令会删除文件或目录"),
+    (r'\bdel\b',                 "此命令会删除文件"),
+    (r'\brm\b',                  "此命令会删除文件"),
+    (r'\brmdir\b',               "此命令会删除目录"),
+    (r'\bClear-Content\b',       "此命令会清空文件内容"),
+    (r'\bClear-RecycleBin\b',    "此命令会清空回收站"),
+    # Write / Overwrite
+    (r'\bSet-Content\b',         "此命令会写入或覆盖文件"),
+    (r'\bOut-File\b',            "此命令会写入或覆盖文件"),
+    (r'\bAdd-Content\b',         "此命令会修改文件内容"),
+    (r'\bExport-',               "此命令会导出/写入文件"),
+    # Move / Rename / Copy
+    (r'\bMove-Item\b',           "此命令会移动文件"),
+    (r'\bmi\b',                  "此命令会移动文件"),
+    (r'\bRename-Item\b',         "此命令会重命名文件"),
+    (r'\brni\b',                 "此命令会重命名文件"),
+    (r'\bCopy-Item\b',           "此命令会复制文件"),
+    (r'\bcopy\b',                "此命令会复制文件"),
+    (r'\bcp\b',                  "此命令会复制文件"),
+    # Creation
+    (r'\bNew-Item\b',            "此命令会创建文件或目录"),
+    (r'\bni\b',                  "此命令会创建文件或目录"),
+    (r'\bmkdir\b',               "此命令会创建目录"),
+    # Redirection (write to file)
+    (r'>\s*\S',                  "此命令会将输出重定向写入文件"),
+    # Permission / Attribute changes
+    (r'\bSet-Acl\b',             "此命令会修改文件权限"),
+    (r'\bSet-FileAttribute\b',   "此命令会修改文件属性"),
+    (r'\battrib\b',              "此命令会修改文件属性"),
+    (r'\bicacls\b',              "此命令会修改文件权限"),
+    (r'\btakeown\b',             "此命令会修改文件所有权"),
+    # Registry modification
+    (r'\bSet-ItemProperty\b',    "此命令会修改注册表"),
+    (r'\bNew-ItemProperty\b',    "此命令会修改注册表"),
+    (r'\bRemove-ItemProperty\b', "此命令会删除注册表项"),
+]
 
-    Args:
-        command: The PowerShell command to execute. Be specific and safe.
+
+def is_dangerous_command(command: str) -> str | None:
+    """Check if a PowerShell command is potentially file-modifying.
 
     Returns:
-        The stdout output of the command, or stderr if it failed.
+        A risk description string if dangerous, or None if safe.
     """
-    try:
-        result = subprocess.run(
-            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
-            capture_output=True,
-            text=True,
-            timeout=60,
-            cwd=os.getcwd(),
-        )
-        output = result.stdout.strip()
-        if result.returncode != 0:
-            err = result.stderr.strip()
-            if err:
-                output = f"STDERR:\n{err}\n\nSTDOUT:\n{output}" if output else f"ERROR:\n{err}"
-        return output or "(no output)"
-    except subprocess.TimeoutExpired:
-        return "ERROR: Command timed out after 60 seconds"
-    except Exception as e:
-        return f"ERROR: {e}"
+    for pattern, description in _DANGEROUS_PATTERNS:
+        if re.search(pattern, command, re.IGNORECASE):
+            return description
+    return None
 
 
-def create_tools() -> list:
-    """Create the list of built-in tools for the agent."""
-    return [run_powershell, search_knowledge, process_pdf_file, web_search, web_fetch]
+def _make_run_powershell(confirm_handler=None):
+    """Create a run_powershell tool function, optionally with confirmation.
+
+    Args:
+        confirm_handler: Optional async callable with signature
+            async def handler(command: str, reason: str) -> bool
+            Returns True if user allowed, False to reject.
+    """
+
+    @function_tool
+    async def run_powershell(command: str) -> str:
+        """Execute a PowerShell command on the user's Windows machine.
+
+        Use this tool when the user asks you to run a command, check system info,
+        manage files, or perform any task that requires shell execution.
+
+        Args:
+            command: The PowerShell command to execute. Be specific and safe.
+
+        Returns:
+            The stdout output of the command, or stderr if it failed.
+        """
+        # Check for dangerous commands
+        if confirm_handler is not None:
+            risk = is_dangerous_command(command)
+            if risk is not None:
+                try:
+                    allowed = await confirm_handler(command, risk)
+                except Exception:
+                    allowed = False
+                if not allowed:
+                    return (
+                        "COMMAND REJECTED BY USER. "
+                        "The user chose not to allow this command to execute. "
+                        "Do NOT attempt to run it again or try alternative commands "
+                        "to achieve the same effect. Instead, explain to the user "
+                        "what you wanted to do and ask if they would like to proceed "
+                        "differently."
+                    )
+
+        try:
+            result = subprocess.run(
+                ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                cwd=os.getcwd(),
+            )
+            output = result.stdout.strip()
+            if result.returncode != 0:
+                err = result.stderr.strip()
+                if err:
+                    output = f"STDERR:\n{err}\n\nSTDOUT:\n{output}" if output else f"ERROR:\n{err}"
+            return output or "(no output)"
+        except subprocess.TimeoutExpired:
+            return "ERROR: Command timed out after 60 seconds"
+        except Exception as e:
+            return f"ERROR: {e}"
+
+    return run_powershell
+
+
+def create_tools(confirm_handler=None) -> list:
+    """Create the list of built-in tools for the agent.
+
+    Args:
+        confirm_handler: Optional async callable for dangerous-command confirmation.
+    """
+    return [
+        _make_run_powershell(confirm_handler),
+        search_knowledge,
+        process_pdf_file,
+        web_search,
+        web_fetch,
+    ]
 
 
 @function_tool

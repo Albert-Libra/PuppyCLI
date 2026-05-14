@@ -78,13 +78,15 @@ def _build_knowledge_context(user_message: str) -> str:
 class AgentRunner:
     """Wraps openai-agents-python Runner for PuppyCLI."""
 
-    def __init__(self, config: Config | None = None, project_dir: Path | None = None):
+    def __init__(self, config: Config | None = None, project_dir: Path | None = None,
+                 confirm_handler=None):
         if config is None:
             from puppycli.config import Config as _Config
 
             config = _Config()
         self._config = config
         self._project_dir = project_dir
+        self._confirm_handler = confirm_handler
 
     def _setup_client(self) -> OpenAIChatCompletionsModel:
         """Configure the OpenAI client and return a Chat Completions model."""
@@ -123,7 +125,7 @@ class AgentRunner:
         agent = Agent(
             name="PuppyCLI Assistant",
             instructions=instructions,
-            tools=create_tools(),
+            tools=create_tools(confirm_handler=self._confirm_handler),
             model=chat_model,
         )
 

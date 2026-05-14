@@ -315,6 +315,9 @@ function handleWSMessage(data) {
         case 'error':
             showError(data.message);
             break;
+        case 'confirm_tool':
+            showConfirmCard(data.confirm_id, data.command, data.reason);
+            break;
     }
 }
 
@@ -996,6 +999,58 @@ function showError(message) {
     elements.messages.appendChild(div);
     scrollToBottom();
     state.isStreaming = false;
+}
+
+// --- Confirm Card ---
+function showConfirmCard(confirmId, command, reason) {
+    finishStreaming();
+    state.isStreaming = true;  // keep input disabled while waiting
+
+    const isZh = i18n._lang === 'zh';
+    const card = document.createElement('div');
+    card.className = 'confirm-card';
+    card.id = 'confirm-' + confirmId;
+    card.innerHTML =
+        `<div class="confirm-card-header">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            <span>${isZh ? 'Agent 想要修改本地文件' : 'Agent wants to modify local files'}</span>
+        </div>
+        <div class="confirm-card-body">
+            <div class="confirm-card-cmd"><code>${escapeHtml(command)}</code></div>
+            <div class="confirm-card-reason">${escapeHtml(reason)}</div>
+        </div>
+        <div class="confirm-card-actions">
+            <button class="confirm-card-allow" id="confirm-allow-${confirmId}">${isZh ? '✓ 允许执行' : '✓ Allow'}</button>
+            <button class="confirm-card-deny" id="confirm-deny-${confirmId}">${isZh ? '✗ 拒绝' : '✗ Deny'}</button>
+        </div>`;
+
+    removeEmptyState();
+    elements.messages.appendChild(card);
+    scrollToBottom();
+
+    function respond(allowed) {
+        if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+            state.ws.send(JSON.stringify({
+                type: 'confirm_response',
+                confirm_id: confirmId,
+                allowed: allowed,
+            }));
+        }
+        const resultText = allowed
+            ? (isZh ? '✓ 已允许执行' : '✓ Execution allowed')
+            : (isZh ? '✗ 已拒绝' : '✗ Execution denied');
+        card.innerHTML = `<div class="confirm-card-result">${resultText}</div>`;
+        card.classList.add('confirm-card-resolved');
+        state.isStreaming = false;
+        elements.userInput.focus();
+    }
+
+    document.getElementById('confirm-allow-' + confirmId).addEventListener('click', () => respond(true));
+    document.getElementById('confirm-deny-' + confirmId).addEventListener('click', () => respond(false));
 }
 
 // --- Markdown Rendering ---

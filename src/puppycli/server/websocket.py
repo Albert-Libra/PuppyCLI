@@ -1,6 +1,8 @@
 """WebSocket handler for streaming chat."""
 
+import asyncio
 import json
+import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -26,14 +28,70 @@ async def websocket_chat(ws: WebSocket):
     config = Config()
     session_manager = _get_manager()
 
+    # ── Queues for concurrent reader pattern ──
+    raw_queue: asyncio.Queue = asyncio.Queue()
+    user_msg_queue: asyncio.Queue = asyncio.Queue()
+
+    # ── Confirmation events: confirm_id -> (asyncio.Event, [bool_result]) ──
+    confirm_events: dict[str, tuple[asyncio.Event, list[bool]]] = {}
+
+    # ── Background reader: reads ALL ws messages into raw_queue ──
+    async def reader():
+        try:
+            while True:
+                raw = await ws.receive_text()
+                await raw_queue.put(json.loads(raw))
+        except WebSocketDisconnect:
+            await raw_queue.put(None)  # sentinel to stop dispatcher
+
+    # ── Background dispatcher: routes messages ──
+    async def dispatcher():
+        while True:
+            data = await raw_queue.get()
+            if data is None:  # disconnect sentinel
+                await user_msg_queue.put(None)
+                break
+            msg_type = data.get("type", "")
+            if msg_type == "confirm_response":
+                cid = data.get("confirm_id", "")
+                allowed = data.get("allowed", False)
+                entry = confirm_events.get(cid)
+                if entry is not None:
+                    event, result = entry
+                    result[0] = allowed
+                    event.set()
+            elif msg_type == "message":
+                await user_msg_queue.put(data)
+            # Ignore other types
+
+    reader_task = asyncio.create_task(reader())
+    dispatcher_task = asyncio.create_task(dispatcher())
+
+    # ── Confirmation handler: sends confirm_tool, waits for response ──
+    async def confirm_handler(command: str, reason: str) -> bool:
+        cid = uuid.uuid4().hex[:8]
+        event = asyncio.Event()
+        result = [False]
+        confirm_events[cid] = (event, result)
+        await ws.send_json({
+            "type": "confirm_tool",
+            "confirm_id": cid,
+            "command": command,
+            "reason": reason,
+        })
+        try:
+            await asyncio.wait_for(event.wait(), timeout=30)
+        except asyncio.TimeoutError:
+            return False
+        finally:
+            confirm_events.pop(cid, None)
+        return result[0]
+
     try:
         while True:
-            raw = await ws.receive_text()
-            data = json.loads(raw)
-
-            msg_type = data.get("type", "")
-            if msg_type != "message":
-                continue
+            data = await user_msg_queue.get()
+            if data is None:  # disconnect sentinel
+                break
 
             content = data.get("content", "")
             session_id = data.get("session_id", "")
@@ -54,10 +112,10 @@ async def websocket_chat(ws: WebSocket):
             # Stream AI response
             full_response = ""
             try:
-                # Load recent conversation history (sliding window: last 40 messages)
+                # Load recent conversation history
                 history = session_manager.get_session(session_id)
                 history_messages = history[:-1] if len(history) > 1 else []
-                MAX_HISTORY = 40  # 20 user-assistant turns
+                MAX_HISTORY = 40
                 if len(history_messages) > MAX_HISTORY:
                     history_messages = history_messages[-MAX_HISTORY:]
 
@@ -69,7 +127,11 @@ async def websocket_chat(ws: WebSocket):
                         {"role": "system", "content": f"[Conversation summary: {summary}]"}
                     ] + history_messages
 
-                runner = AgentRunner(config=config, project_dir=_STARTUP_CWD)
+                runner = AgentRunner(
+                    config=config,
+                    project_dir=_STARTUP_CWD,
+                    confirm_handler=confirm_handler,
+                )
                 async for token in runner.run_stream(
                     user_message=content,
                     history=context_messages,
@@ -93,5 +155,10 @@ async def websocket_chat(ws: WebSocket):
             # Signal completion
             await ws.send_json({"type": "done", "session_id": session_id})
 
-    except WebSocketDisconnect:
-        pass
+    finally:
+        reader_task.cancel()
+        dispatcher_task.cancel()
+        try:
+            await asyncio.gather(reader_task, dispatcher_task)
+        except (asyncio.CancelledError, WebSocketDisconnect):
+            pass
