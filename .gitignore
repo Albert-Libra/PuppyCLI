@@ -1,0 +1,77 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+*.manifest
+*.spec
+
+# Virtual environments
+venv/
+.env/
+*.venv/
+env/
+.venv/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+config.yaml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Testing
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+*.cover
+
+# Logs
+*.log
+logs/
+
+# Auto-generated documentation (rebuild with python scripts/build_docs.py)
+docs/html/
+src/puppycli/static/docs/
+
+# Development traces (DeepCode/Codex plans & specs)
+docs/superpowers/
+
+# Session / user data (runtime data, never commit)
+/sessions/
+/sessions-index.json
+/knowledge/
+/skills/
+
+# Misc
+*.orig
+*.bak
+*.tmp
+/项目需求.md

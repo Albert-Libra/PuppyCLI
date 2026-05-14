@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "puppycli"
+version = "0.1.0"
+description = "PuppyCLI - A local AI agent tool with browser-based GUI"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "openai-agents>=0.17",
+    "pyyaml>=6.0",
+    "websockets>=12.0",
+    "requests>=2.28",
+]
+
+[project.scripts]
+puppy = "puppycli.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+puppycli = ["static/**/*", "!static/docs/**"]

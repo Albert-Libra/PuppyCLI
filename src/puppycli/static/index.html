@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PuppyCLI</title>
+    <link rel="stylesheet" href="/style.css">
+    <!-- Markdown rendering + syntax highlighting -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <!-- LaTeX rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- Top Bar -->
+        <header id="topbar">
+            <div class="logo">
+                <button id="btn-sidebar-toggle" data-i18n-title="toggle-sidebar" title="Toggle Sidebar">☰</button>
+                <img src="/logo.png" class="logo-icon" alt="PuppyCLI logo" onerror="this.style.display='none';this.nextElementSibling.style.display='inline';"><span class="logo-icon-fallback" style="display:none;">🐶</span>
+                <span class="logo-text">PuppyCLI</span>
+            </div>
+            <div class="topbar-actions">
+                <button id="btn-docs" data-i18n-title="docs" title="Documentation"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg></button>
+                <button id="btn-theme" data-i18n-title="theme" title="Toggle Theme"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg></button>
+                <button id="btn-lang" data-i18n-title="lang" title="Language"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg></button>
+                <button id="btn-settings" data-i18n-title="settings" title="Settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg></button>
+            </div>
+        </header>
+
+        <!-- Sidebar -->
+        <aside id="sidebar">
+            <div class="sidebar-header">
+                <span data-i18n="conversations">Conversations</span>
+                <button id="btn-new-chat" data-i18n-title="new-chat" title="New Chat">+</button>
+            </div>
+            <div id="session-list"></div>
+        </aside>
+
+        <!-- Main Chat Area -->
+        <main id="chat">
+            <div id="messages"></div>
+            <div id="input-area">
+                <textarea id="user-input" rows="1" data-i18n-placeholder="placeholder" placeholder="Type a message... (Enter to send, Shift+Enter for new line)"></textarea>
+                <div id="slash-suggestions" class="hidden"></div>
+            </div>
+        </main>
+
+        <!-- Settings Modal -->
+        <div id="settings-modal" class="modal hidden">
+            <div class="modal-content">
+                <h2 data-i18n="settings-title">Settings</h2>
+                <label><span data-i18n="api-key">API Key</span><input type="password" id="cfg-api-key" placeholder="sk-..."></label>
+                <label><span data-i18n="model">Model</span><input type="text" id="cfg-model" placeholder="deepseek-chat"></label>
+                <label><span data-i18n="base-url">Base URL</span><input type="text" id="cfg-base-url" placeholder="https://api.deepseek.com"></label>
+                <label><span data-i18n="python-env">Python Env Path</span><input type="text" id="cfg-python-env" placeholder="(optional)"></label>
+                <label><span data-i18n="data-dir">Data Directory</span><input type="text" id="cfg-data-dir" placeholder="(optional)"></label>
+                <div class="modal-actions">
+                    <button id="btn-settings-save" data-i18n="save">Save</button>
+                    <button id="btn-settings-close" data-i18n="cancel">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/app.js"></script>
+</body>
+</html>
