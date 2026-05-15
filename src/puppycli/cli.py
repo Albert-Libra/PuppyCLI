@@ -125,12 +125,12 @@ def _run_update() -> None:
     _safe_print(f"Repository: {_REPO_URL}")
     print()
 
-    _safe_print(f"Running: pip install --upgrade git+{_REPO_URL}")
+    _safe_print(f"Running: pip install --upgrade --no-cache-dir git+{_REPO_URL}")
     print()
 
     try:
         subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", "--upgrade", f"git+{_REPO_URL}"],
+            [sys.executable, "-m", "pip", "install", "--upgrade", "--no-cache-dir", f"git+{_REPO_URL}"],
         )
         print()
         _safe_print("=" * 56)
