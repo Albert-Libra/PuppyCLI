@@ -143,9 +143,11 @@ class AgentRunner:
             history_input.append({"role": "user", "content": user_message})
             agent_input = history_input
 
+        max_turns = self._config.get("max_turns", 50)
         result = Runner.run_streamed(
             starting_agent=agent,
             input=agent_input,
+            max_turns=max_turns,
         )
 
         async for event in result.stream_events():

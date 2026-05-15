@@ -17,6 +17,7 @@ DEFAULT_CONFIG = {
     "python_env": "",
     "data_dir": "",
     "mineru_token": "",
+    "max_turns": 50,
 }
 
 DEFAULT_CONFIG_DIR = Path.home() / "PuppyCLI"
