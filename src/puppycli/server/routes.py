@@ -129,11 +129,18 @@ async def api_search_skills(q: str = "", limit: int = 10):
 
 @router.post("/skills/install")
 async def api_install_skill(request: dict):
-    """Install a skill from a path, GitHub repo, or URL."""
+    """Install a skill from a path, GitHub repo, or URL.
+
+    Body:
+        source: str — path, GitHub repo (owner/repo), or URL
+        project: bool — install to project-level skills (default: False)
+        adapt: bool — auto-adapt for PuppyCLI frontend (default: True)
+    """
     from puppycli.skill.manager import SkillManager
 
     source = request.get("source", "")
     project = request.get("project", False)
+    adapt = request.get("adapt", True)
 
     manager = SkillManager(project_dir=_STARTUP_CWD)
 
@@ -144,16 +151,16 @@ async def api_install_skill(request: dict):
         # Determine source type
         if source.startswith("http://") or source.startswith("https://"):
             if "github.com" in source:
-                info = manager.install_from_github(source, project=project)
+                info = manager.install_from_github(source, project=project, adapt=adapt)
             else:
-                info = manager.install_from_url(source, project=project)
+                info = manager.install_from_url(source, project=project, adapt=adapt)
         elif "/" in source and not source.startswith(".") and not source.startswith("~"):
             # GitHub shorthand: owner/repo
-            info = manager.install_from_github(source, project=project)
+            info = manager.install_from_github(source, project=project, adapt=adapt)
         else:
             # Local path
             from pathlib import Path
-            info = manager.install_from_path(Path(source).expanduser().resolve(), project=project)
+            info = manager.install_from_path(Path(source).expanduser().resolve(), project=project, adapt=adapt)
         return {"status": "ok", "skill": info}
     except FileExistsError as e:
         raise HTTPException(status_code=409, detail=str(e))
@@ -171,6 +178,50 @@ async def api_remove_skill(name: str):
     if manager.remove_skill(name):
         return {"status": "ok"}
     raise HTTPException(status_code=404, detail=f"Skill '{name}' not found")
+
+
+@router.post("/skills/{name}/adapt")
+async def api_adapt_skill(name: str):
+    """Adapt an installed skill for PuppyCLI's browser frontend.
+
+    Use this after installing a skill with adapt=False, or to re-adapt
+    after restoring the original version.
+    """
+    from puppycli.skill.manager import SkillManager
+    manager = SkillManager(project_dir=_STARTUP_CWD)
+    try:
+        result = manager.adapt_skill(name)
+        return {"status": "ok", "adaptation": result}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/skills/{name}/restore")
+async def api_restore_skill(name: str):
+    """Restore a skill to its original CLI content (revert adaptation)."""
+    from puppycli.skill.manager import SkillManager
+    manager = SkillManager(project_dir=_STARTUP_CWD)
+    try:
+        restored = manager.restore_skill(name)
+        if restored:
+            return {"status": "ok", "message": f"Skill '{name}' restored to original"}
+        raise HTTPException(status_code=404, detail=f"No original backup found for '{name}'")
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/skills/{name}/analysis")
+async def api_analyze_skill(name: str):
+    """Analyze a skill for CLI indicators and adaptation needs."""
+    from puppycli.skill.manager import SkillManager
+    from puppycli.skill.adapter import get_adaptation_info
+    manager = SkillManager(project_dir=_STARTUP_CWD)
+    skill_path = manager.get_skill_path(name)
+    if not skill_path:
+        raise HTTPException(status_code=404, detail=f"Skill '{name}' not found")
+    return get_adaptation_info(skill_path)
 
 
 # ---- Local File Serving (for images, etc.) ----

@@ -279,6 +279,21 @@ def main() -> None:
     if args.setup or is_first_run:
         _run_setup_wizard(is_first_run=is_first_run)
 
+    # Check for updates (cached for 24 hours)
+    from puppycli.update import check_for_update
+
+    info = check_for_update()
+    if info.update_available:
+        _safe_print(
+            f"\nPuppyCLI v{info.current_version} — "
+            f"A new version v{info.latest_version} is available!"
+        )
+        _safe_print("Update now? [Y/n]")
+        answer = _safe_input("> ").lower()
+        if answer in ("", "y", "yes"):
+            _run_update()
+            return
+
     url = f"http://{args.host}:{args.port}"
 
     if not args.no_browser:

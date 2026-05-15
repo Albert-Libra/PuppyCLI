@@ -458,7 +458,9 @@ function cmdHelp() {
 | \`/retry\` | 重新生成上一次回复 |
 | \`/model <name>\` | 快速切换 AI 模型 |
 | \`/skill list\` | 列出已安装的技能 |
-| \`/skill install <source>\` | 安装技能（路径、GitHub、URL） |
+| \`/skill install <source>\` | 安装技能（路径、GitHub、URL），自动适配前端 |
+| \`/skill adapt <name>\` | 对已有技能进行 PuppyCLI 前端适配 |
+| \`/skill restore <name>\` | 还原技能为原始版本 |
 | \`/skill remove <name>\` | 移除技能 |
 | \`/search <query>\` | 在 agentskills.io 上搜索技能 |
 | \`!<command>\` | 执行 PowerShell 命令（例如 \`!Get-Date\`） |
@@ -482,7 +484,9 @@ function cmdHelp() {
 | \`/retry\` | Regenerate last AI response |
 | \`/model <name>\` | Quick-switch AI model |
 | \`/skill list\` | List installed skills |
-| \`/skill install <source>\` | Install a skill (path, GitHub, URL) |
+| \`/skill install <source>\` | Install a skill (path, GitHub, URL), auto-adapts |
+| \`/skill adapt <name>\` | Adapt a skill for PuppyCLI frontend |
+| \`/skill restore <name>\` | Restore skill to original version |
 | \`/skill remove <name>\` | Remove a skill |
 | \`/search <query>\` | Search skills on agentskills.io |
 | \`!<command>\` | Execute a PowerShell command (e.g., \`!Get-Date\`) |
@@ -657,14 +661,17 @@ async function cmdSkill(arg) {
                 return;
             }
             let md = isZh
-                ? '**已安装技能**\n\n| 名称 | 描述 | 位置 |\n|------|-------------|----------|\n'
-                : '**Installed Skills**\n\n| Name | Description | Location |\n|------|-------------|----------|\n';
+                ? '**已安装技能**\n\n| 名称 | 描述 | 位置 | 前端适配 |\n|------|-------------|----------|----------|\n'
+                : '**Installed Skills**\n\n| Name | Description | Location | Adapted |\n|------|-------------|----------|----------|\n';
             skills.forEach(s => {
-                md += `| \`${s.name}\` | ${s.description.slice(0, 80)} | ${s.location} |\n`;
+                const adapted = s.is_adapted
+                    ? (isZh ? '✅ 已适配' : '✅ Yes')
+                    : (isZh ? '⚠️ 未适配' : '⚠️ No');
+                md += `| \`${s.name}\` | ${(s.description||'').slice(0, 80)} | ${s.location} | ${adapted} |\n`;
             });
             md += isZh
-                ? '\n使用 `/skill remove <name>` 移除技能。'
-                : '\nUse `/skill remove <name>` to remove a skill.';
+                ? '\n使用 `/skill adapt <name>` 适配前端，`/skill restore <name>` 还原，`/skill remove <name>` 移除。'
+                : '\nUse `/skill adapt <name>` to adapt, `/skill restore <name>` to revert, `/skill remove <name>` to remove.';
             showSystemMessage(md);
         } catch (e) {
             showSystemMessage((isZh ? '获取技能列表失败: ' : 'Failed to list skills: ') + e.message);
@@ -685,9 +692,13 @@ async function cmdSkill(arg) {
             });
             if (resp.ok) {
                 const data = await resp.json();
+                const adapted = data.skill.is_adapted;
+                const adaptMsg = adapted
+                    ? (isZh ? ' ✅ 已自动进行前端适配' : ' ✅ Auto-adapted for PuppyCLI')
+                    : (isZh ? ' (未检测到 CLI 特征，无需适配)' : ' (no CLI patterns detected, no adaptation needed)');
                 showSystemMessage(isZh
-                    ? `技能 **${data.skill.name}** 安装成功！输入 /skill list 查看所有技能。`
-                    : `Skill **${data.skill.name}** installed successfully! Type /skill list to see all skills.`);
+                    ? `技能 **${data.skill.name}** 安装成功！${adaptMsg} 输入 /skill list 查看所有技能。`
+                    : `Skill **${data.skill.name}** installed successfully!${adaptMsg} Type /skill list to see all skills.`);
             } else {
                 const err = await resp.json();
                 showSystemMessage((isZh ? '安装失败: ' : 'Install failed: ') + (err.detail || resp.statusText));
@@ -712,6 +723,49 @@ async function cmdSkill(arg) {
             }
         } catch (e) {
             showSystemMessage((isZh ? '移除技能失败: ' : 'Failed to remove skill: ') + e.message);
+        }
+    } else if (action === 'adapt') {
+        if (!target) {
+            showSystemMessage(isZh
+                ? '用法: `/skill adapt <name>`。对已安装技能进行 PuppyCLI 前端适配。'
+                : 'Usage: `/skill adapt <name>`. Adapt an installed skill for PuppyCLI frontend.');
+            return;
+        }
+        showSystemMessage(isZh ? `正在适配 **${target}**...` : `Adapting **${target}**...`);
+        try {
+            const resp = await fetch(`/api/skills/${target}/adapt`, { method: 'POST' });
+            if (resp.ok) {
+                const data = await resp.json();
+                showSystemMessage(isZh
+                    ? `技能 **${target}** 前端适配完成。原始文件已备份为 SKILL.md.orig。`
+                    : `Skill **${target}** adapted for PuppyCLI. Original backed up as SKILL.md.orig.`);
+            } else {
+                const err = await resp.json();
+                showSystemMessage((isZh ? '适配失败: ' : 'Adapt failed: ') + (err.detail || resp.statusText));
+            }
+        } catch (e) {
+            showSystemMessage((isZh ? '适配技能失败: ' : 'Failed to adapt skill: ') + e.message);
+        }
+    } else if (action === 'restore') {
+        if (!target) {
+            showSystemMessage(isZh
+                ? '用法: `/skill restore <name>`。将技能还原为原始版本。'
+                : 'Usage: `/skill restore <name>`. Restore skill to original version.');
+            return;
+        }
+        showSystemMessage(isZh ? `正在还原 **${target}**...` : `Restoring **${target}**...`);
+        try {
+            const resp = await fetch(`/api/skills/${target}/restore`, { method: 'POST' });
+            if (resp.ok) {
+                showSystemMessage(isZh
+                    ? `技能 **${target}** 已还原为原始版本。`
+                    : `Skill **${target}** restored to original.`);
+            } else {
+                const err = await resp.json();
+                showSystemMessage((isZh ? '还原失败: ' : 'Restore failed: ') + (err.detail || resp.statusText));
+            }
+        } catch (e) {
+            showSystemMessage((isZh ? '还原技能失败: ' : 'Failed to restore skill: ') + e.message);
         }
     } else {
         showSystemMessage(isZh

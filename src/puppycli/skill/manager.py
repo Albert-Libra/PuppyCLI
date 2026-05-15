@@ -39,7 +39,10 @@ class SkillManager:
     # ---- Discovery ----
 
     def list_skills(self) -> list[dict[str, Any]]:
-        """List all installed skills with metadata."""
+        """List all installed skills with metadata.
+
+        Includes adaptation status for each skill.
+        """
         skills = []
         seen = set()
         for base in [self._global_dir, self._project_dir]:
@@ -51,6 +54,12 @@ class SkillManager:
                     if info:
                         info["location"] = "project" if (self._project_dir and self._project_dir in d.parents) else "global"
                         info["path"] = str(d)
+                        # Add adaptation metadata
+                        try:
+                            from puppycli.skill.adapter import is_adapted
+                            info["is_adapted"] = is_adapted(d)
+                        except Exception:
+                            info["is_adapted"] = False
                         skills.append(info)
                         seen.add(d.name)
         return skills
@@ -84,8 +93,17 @@ class SkillManager:
 
     # ---- Installation ----
 
-    def install_from_path(self, source: Path, *, project: bool = False) -> dict[str, Any]:
-        """Install a skill from a local directory."""
+    def install_from_path(
+        self, source: Path, *, project: bool = False, adapt: bool = True
+    ) -> dict[str, Any]:
+        """Install a skill from a local directory.
+
+        Args:
+            source: Path to the skill directory containing SKILL.md
+            project: If True, install to project-level skills directory
+            adapt: If True, auto-adapt CLI-oriented skills for PuppyCLI's
+                   browser frontend (default: True)
+        """
         source = source.resolve()
         info = self._read_skill_info(source)
         if not info:
@@ -97,14 +115,31 @@ class SkillManager:
             raise FileExistsError(f"Skill '{name}' is already installed")
 
         # Copy entire directory
-        if target_dir.exists():
-            shutil.rmtree(target_dir)
         shutil.copytree(source, target_dir)
+
+        # ── Frontend adaptation ──
+        adaptation_info = None
+        if adapt:
+            from puppycli.skill.adapter import adapt_skill, analyze_skill
+
+            analysis = analyze_skill(target_dir)
+            if analysis["needs_adaptation"]:
+                adaptation_info = adapt_skill(target_dir)
+                # Refresh skill info after adaptation
+                info = self._read_skill_info(target_dir) or info
+
         info["location"] = "project" if project else "global"
         info["path"] = str(target_dir)
+        if adaptation_info:
+            info["adaptation"] = adaptation_info
+            info["is_adapted"] = adaptation_info.get("status") == "adapted"
+        else:
+            info["is_adapted"] = False
         return info
 
-    def install_from_github(self, repo: str, *, project: bool = False) -> dict[str, Any]:
+    def install_from_github(
+        self, repo: str, *, project: bool = False, adapt: bool = True
+    ) -> dict[str, Any]:
         """Install a skill from a GitHub repository (owner/repo or full URL).
 
         Downloads the repo as ZIP and extracts the SKILL.md folder.
@@ -146,12 +181,12 @@ class SkillManager:
 
             # Check if root itself is a skill (has SKILL.md)
             if (repo_root / "SKILL.md").exists():
-                return self.install_from_path(repo_root, project=project)
+                return self.install_from_path(repo_root, project=project, adapt=adapt)
 
             # Search for skill directories inside
             for d in repo_root.iterdir():
                 if d.is_dir() and (d / "SKILL.md").exists():
-                    return self.install_from_path(d, project=project)
+                    return self.install_from_path(d, project=project, adapt=adapt)
 
             # If repo contains a skills/ directory, install all skills
             skills_dir = repo_root / "skills"
@@ -159,16 +194,18 @@ class SkillManager:
                 installed = []
                 for d in skills_dir.iterdir():
                     if d.is_dir() and (d / "SKILL.md").exists():
-                        installed.append(self.install_from_path(d, project=project))
+                        installed.append(self.install_from_path(d, project=project, adapt=adapt))
                 if installed:
                     return installed[0]  # Return first for simplicity
 
             raise ValueError(f"No SKILL.md found in {repo}")
 
-    def install_from_url(self, url: str, *, project: bool = False) -> dict[str, Any]:
+    def install_from_url(
+        self, url: str, *, project: bool = False, adapt: bool = True
+    ) -> dict[str, Any]:
         """Install a skill from a direct ZIP URL."""
         if "github.com" in url and not url.endswith(".zip"):
-            return self.install_from_github(url, project=project)
+            return self.install_from_github(url, project=project, adapt=adapt)
 
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -186,12 +223,12 @@ class SkillManager:
             # Search recursively for SKILL.md
             for skill_md_path in sorted(extract_dir.rglob("SKILL.md")):
                 skill_dir = skill_md_path.parent
-                return self.install_from_path(skill_dir, project=project)
+                return self.install_from_path(skill_dir, project=project, adapt=adapt)
 
             # Maybe the extracted root is a single directory containing SKILL.md
             extracted = list(extract_dir.iterdir())
             if extracted and extracted[0].is_dir() and (extracted[0] / "SKILL.md").exists():
-                return self.install_from_path(extracted[0], project=project)
+                return self.install_from_path(extracted[0], project=project, adapt=adapt)
 
             raise ValueError("No SKILL.md found in the downloaded archive")
 
@@ -207,6 +244,34 @@ class SkillManager:
                 shutil.rmtree(target)
                 return True
         return False
+
+    # ---- Adaptation ----
+
+    def adapt_skill(self, name: str) -> dict[str, Any]:
+        """Adapt an already-installed skill for PuppyCLI's frontend.
+
+        Useful when a skill was installed before the adapter existed,
+        or was installed with adapt=False.
+        """
+        skill_dir = self.get_skill_path(name)
+        if not skill_dir:
+            raise ValueError(f"Skill '{name}' not found")
+
+        from puppycli.skill.adapter import adapt_skill as do_adapt
+
+        result = do_adapt(skill_dir)
+        if result["status"] == "error":
+            raise RuntimeError(result.get("message", "Adaptation failed"))
+        return result
+
+    def restore_skill(self, name: str) -> bool:
+        """Restore a skill to its original CLI content (revert adaptation)."""
+        skill_dir = self.get_skill_path(name)
+        if not skill_dir:
+            raise ValueError(f"Skill '{name}' not found")
+
+        from puppycli.skill.adapter import restore_original
+        return restore_original(skill_dir)
 
     # ---- Helpers ----
 
