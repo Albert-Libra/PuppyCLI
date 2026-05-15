@@ -26,7 +26,7 @@ A local AI agent tool with a browser-based GUI, built on [openai-agents-python](
 Requires Python 3.10+.
 
 ```bash
-pip install git+https://github.com/Albert-Libra/PuppyCLI.git
+pip install --no-cache-dir git+https://github.com/Albert-Libra/PuppyCLI.git
 ```
 
 ## Quick Start

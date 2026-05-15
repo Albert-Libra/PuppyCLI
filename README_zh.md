@@ -26,7 +26,7 @@
 需要 Python 3.10 及以上版本。
 
 ```bash
-pip install git+https://github.com/Albert-Libra/PuppyCLI.git
+pip install --no-cache-dir git+https://github.com/Albert-Libra/PuppyCLI.git
 ```
 
 ## 快速开始
