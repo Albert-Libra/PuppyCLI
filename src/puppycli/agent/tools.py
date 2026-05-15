@@ -94,8 +94,18 @@ def _make_run_powershell(confirm_handler=None):
             if risk is not None:
                 try:
                     allowed = await confirm_handler(command, risk)
-                except Exception:
-                    allowed = False
+                except Exception as exc:
+                    import logging
+                    logging.getLogger("puppycli").error(
+                        "Confirm handler failed for command %r: %s", command, exc
+                    )
+                    return (
+                        "COMMAND CONFIRMATION FAILED. "
+                        f"The confirmation system encountered an error: {exc}. "
+                        "This is NOT because the user rejected the command — "
+                        "it is a system error. Please report this to the user and "
+                        "ask if they would like you to try again or proceed differently."
+                    )
                 if not allowed:
                     return (
                         "COMMAND REJECTED BY USER. "
